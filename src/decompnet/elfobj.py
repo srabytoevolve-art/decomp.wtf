@@ -35,6 +35,11 @@ _MASKS: dict[tuple[str, int], tuple[int, int, int]] = {
     ("ppc", 10): (0, 4, 0x03FFFFFC),  # R_PPC_REL24
     ("ppc", 109): (0, 4, 0x001FFFFF),  # R_PPC_EMB_SDA21
     ("thumb", 10): (0, 4, 0x07FF07FF),  # R_ARM_THM_CALL (both halves of a Thumb bl)
+    # Master System (rom.sms): references sit at the instruction; its address follows the opcode byte
+    ("z80", 10): (1, 2, 0xFFFF),  # call nn
+    ("z80", 11): (1, 2, 0xFFFF),  # jp nn (and jr: its offset byte and the next)
+    ("z80", 2): (1, 2, 0xFFFF),  # (nn): RAM and ROM data
+    ("z80", 3): (1, 2, 0xFFFF),  # ld rr,nn pointing into the ROM
     ("thumb", 2): (0, 4, 0xFFFFFFFF),  # R_ARM_ABS32 (a literal-pool word)
     ("arm", 28): (0, 4, 0x00FFFFFF),  # R_ARM_CALL
     ("arm", 29): (0, 4, 0x00FFFFFF),  # R_ARM_JUMP24

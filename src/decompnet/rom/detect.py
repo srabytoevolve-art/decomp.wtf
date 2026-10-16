@@ -1,4 +1,4 @@
-"""Work out what the user picked: an N64 ROM, a PlayStation executable, or a PlayStation disc image."""
+"""Work out what the user picked: an N64, GBA or Master System ROM, a PlayStation executable, or a disc image."""
 
 from __future__ import annotations
 
@@ -7,16 +7,17 @@ from dataclasses import dataclass, field
 import struct
 from pathlib import Path
 
-from . import chd, gba, n64, overlays, ps2, psx
+from . import chd, gba, n64, overlays, ps2, psx, sms
 from .n64 import RomError
 
-PLATFORMS = {"n64": "Nintendo 64", "psx": "PlayStation", "ps2": "PlayStation 2", "gba": "Game Boy Advance"}
+PLATFORMS = {"n64": "Nintendo 64", "psx": "PlayStation", "ps2": "PlayStation 2", "gba": "Game Boy Advance",
+             "sms": "Master System"}
 SMALL = 64 * 1024 * 1024  # ROMs and programs are read whole; disc images are read from disk
 
 
 @dataclass
 class Picked:
-    platform: str  # n64 | psx | ps2
+    platform: str  # n64 | psx | ps2 | gba | sms
     data: bytes  # what we split: a z64 ROM, a PS-X EXE or a PS2 ELF
     filename: str  # name to store it under in the project folder
     info: dict
@@ -27,6 +28,9 @@ class Picked:
 def _program(data: bytes, name: str = "") -> Picked | None:
     if gba.is_gba(data):
         return Picked("gba", data, "rom.gba", gba.read_info(data), False)
+    if sms.is_sms(data, name):
+        rom = sms.strip_copier_header(data)
+        return Picked("sms", rom, "rom.sms", sms.read_info(rom, name), False)
     if data[:4] in n64.MAGIC:
         rom, info = n64.read_info(data)
         return Picked("n64", rom, "rom.z64", info.to_dict() | {"platform": "n64", "gp": 0}, True)
@@ -65,7 +69,8 @@ def identify(src: bytes | Path, name: str = "") -> Picked:
     if src[:4] == b"\x7fELF":
         raise RomError("this ELF program isn't for a console decomp.wtf can split from scratch yet")
     raise RomError("this isn't a ROM, disc or game program this app can read: pick an N64 ROM (.z64, .n64, .v64), "
-                   "a PlayStation 1 or 2 disc image (.bin, .iso, .chd) or its program file (e.g. SLUS_200.00)")
+                   "a PlayStation 1 or 2 disc image (.bin, .iso, .chd) or its program file (e.g. SLUS_200.00), a GBA ROM (.gba) "
+                   "or a Master System / Game Gear ROM (.sms, .gg)")
 
 
 def _from_disc(src) -> Picked:

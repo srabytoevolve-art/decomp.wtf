@@ -34,6 +34,7 @@ GUIDES = {
     "ps2": "matching PlayStation 2 (EE-GCC, MWCC PS2) code",
     "arm": "ARM and Thumb (GBA, DS, 3DS): registers, conditional code, literal pools",
     "agbcc": "matching Game Boy Advance code built with agbcc",
+    "z80": "Master System (Z80): assembly that matches, banks and the mapper, SDCC C for homebrew",
     "x86": "x86 and MSVC (PC, Xbox): calling conventions, SEH, matching MSVC output",
     "aarch64": "AArch64 and Clang (Switch): registers, matching Clang output",
     "similarity": "finding similar functions and reusing matched code",
@@ -44,7 +45,7 @@ PLATFORM_GUIDES = {
     "n64": ["mips"], "ps": ["mips", "psx"], "ps2": ["mips", "ps2"], "psp": ["mips"],
     "gc": ["ppc", "mwcc", "cpp"], "wii": ["ppc", "mwcc", "cpp"], "nds": ["arm", "mwcc"], "3ds": ["arm", "cpp"],
     "gba": ["arm", "agbcc"], "switch": ["aarch64", "cpp"], "win32": ["x86", "cpp"], "xbox": ["x86", "cpp"],
-    "xbox360": ["ppc", "cpp"],
+    "xbox360": ["ppc", "cpp"], "sms": ["z80"],
 }
 
 INSTRUCTIONS = """\
@@ -78,6 +79,30 @@ Use only the decomp tools. Repeat for up to {count} claims (a batch is one), the
    then release_function with precise notes (what you tried, what is left) and claim the next one.
 
 Write plausible original code, pure C (no inline asm). Be brief in your messages: work, don't narrate.
+"""
+
+ASM_WORK_PROMPT = """\
+You are a decompilation agent in decomp.wtf, working on {title}, a Master System game written in Z80 assembly.
+Other agents may be working on other functions of the same game at the same time; the tools keep you from
+colliding.
+
+Your job: turn functions of this game into readable assembly source that assembles to *exactly* the original
+bytes: the game's own source, as its programmers might have written it. Use only the decomp tools. Repeat for up
+to {count} claims (a batch is one), then stop:
+
+1. claim_function(count=4) gives you the next function (and small neighbours): its assembly (which already
+   assembles to the right bytes), where it lives, what it calls and the data it uses, Ghidra's C reading of it,
+   the best previous attempt and notes (start from those!).
+2. Work out what it does. Give it, its callees and the RAM it uses real names with rename_symbol (names follow
+   everywhere), name its labels (.loop, .done), add short comments, and put shared constants in the context
+   (get_context / edit_context: equates only).
+3. compile_and_diff(function, source) with the whole function. Addresses the project has names for must be
+   written as names; bytes the game runs must be instructions, not .db. Read the diff like any other.
+4. Score 0 = matched and saved. Share what you learned: rename_symbol, edit_context, and add_note (no function)
+   for a convention every agent here should know.
+5. compile_and_diff says when to move on: then release_function with precise notes and claim the next one.
+
+The z80 guide is below. Be brief in your messages: work, don't narrate.
 """
 
 FORK_PROMPT = """\

@@ -30,13 +30,13 @@ from ..rom import detect, match, split
 from ..rom.symbols import AUTO_NAME, IDENT, Symbol, SymbolTable
 
 DEFAULT_TOOLCHAIN = {"KMC": "gcc-2.7.2-kmc", "IDO": "ido-7.1", "PSYQ": "gcc-2.7.2-psx", "EEGCC": "ee-gcc-2.96",
-                     "AGBCC": "agbcc"}
+                     "AGBCC": "agbcc", "Z80 assembly": "z80asm", "SDCC": "sdcc"}
 # How ready each platform is for a full decomp you can port and mod; the GUI and the README show it.
 # recommended: the most tested path, from import to a project that builds the game (GameCube and Wii: the same kind
 # of project as decomp.dev's, linked file by file as it's finished; N64: tested on real games, rebuilt byte for byte).
 # beta: works and is tested on homemade games, less so on real ones yet.
 PLATFORM_STATUS = {"gc": "recommended", "wii": "recommended", "n64": "recommended",
-                   "psx": "beta", "ps2": "beta", "gba": "beta", "nds": "beta"}
+                   "psx": "beta", "ps2": "beta", "gba": "beta", "nds": "beta", "sms": "beta"}
 COMPILERS = {
     "gcc-2.7.2-kmc": "many third-party N64 games",
     "ido-7.1": "most later first-party N64 games",
@@ -45,10 +45,12 @@ COMPILERS = {
     "gcc-2.8.1-psx": "later PlayStation games",
     "ee-gcc-2.96": "PlayStation 2 games (Sony's EE GCC)",
     "agbcc": "Game Boy Advance games (pret's agbcc, GCC 2.95)",
+    "z80asm": "Master System games, written in Z80 assembly (built in)",
+    "sdcc": "Master System homebrew written in C (devkitSMS)",
 }
 SHORT_NAMES = {"gcc-2.7.2-kmc": "KMC GCC 2.7.2", "ido-7.1": "IDO 7.1", "ido-5.3": "IDO 5.3",
                "gcc-2.7.2-psx": "GCC 2.7.2 (PS1)", "gcc-2.8.1-psx": "GCC 2.8.1 (PS1)", "ee-gcc-2.96": "EE-GCC 2.96",
-               "agbcc": "agbcc"}
+               "agbcc": "agbcc", "z80asm": "Z80 assembly", "sdcc": "SDCC"}
 # CodeWarrior versions in the `mwcc` pack (GameCube, Wii) and the `mwccarm` pack (DS), for games started from scratch.
 MW_VERSIONS = {
     "gc": ["GC/1.0", "GC/1.1", "GC/1.1p1", "GC/1.2.5", "GC/1.2.5n", "GC/1.3", "GC/1.3.2", "GC/1.3.2r", "GC/2.0",
@@ -73,9 +75,20 @@ TOOLS = {
 # Functions this small are handed out in batches (claim_function count): agents match most on the first try.
 BATCH_INSNS = 48
 PLATFORM_COMPILERS = {"n64": ["gcc-2.7.2-kmc", "ido-7.1", "ido-5.3"], "psx": ["gcc-2.7.2-psx", "gcc-2.8.1-psx"],
-                      "ps2": ["ee-gcc-2.96"], "gba": ["agbcc"]}
+                      "ps2": ["ee-gcc-2.96"], "gba": ["agbcc"], "sms": ["z80asm", "sdcc"]}
 _AUTO_TOKEN = re.compile(r"\b(?:func|D|B|jtbl|RO|STR|FLT|DBL)_[0-9A-F]{8}\b")
 _ADDRESS = re.compile(r"^(?:0x)?([0-9A-Fa-f]{8})$")
+
+
+def _sym_file(data, name: str = "") -> str | None:
+    """A symbol file next to the game (`game.sym` by `game.sms`, as emulators and WLA-DX write them), if any."""
+    if not isinstance(data, (str, Path)):
+        return None
+    sym = Path(data).with_suffix(".sym")
+    try:
+        return sym.read_text(encoding="utf-8", errors="replace") if sym.is_file() else None
+    except OSError:
+        return None
 
 GP_NOTE = """
 /* This game keeps small globals (8 bytes or less) in $gp-relative small data. Declare those here WITHOUT
@@ -303,11 +316,31 @@ class RomNetwork(Network):
             return super()._target_obj(fn, proj)
         if self.cfg(proj).get("platform") == "gba":
             return FunctionObj(fn["name"], "thumb", False, fn["target"], [])
+        if self.cfg(proj).get("platform") == "sms":
+            return FunctionObj(fn["name"], "z80", False, fn["target"], [])
         return match.canonical_target(self._rom_target(fn), self.symbols(proj["id"]))
+
+    def _compile(self, proj, header: str, source: str):
+        if self.cfg(proj).get("platform") == "sms":  # Z80 assembly (by hand or from SDCC), see rom.sms_project
+            from ..rom import sms_project
+
+            return sms_project.compile_source_sms(self, proj, header, source)
+        return super()._compile(proj, header, source)
+
+    def _lang(self, proj) -> str:
+        if self.cfg(proj).get("platform") == "sms":
+            from ..rom import sms_project
+
+            return sms_project.lang(self.cfg(proj))
+        return "c"
 
     def _evaluate(self, fn, proj, obj: bytes):
         if not self.is_rom(proj):
             return super()._evaluate(fn, proj, obj)
+        if self.cfg(proj).get("platform") == "sms":
+            from ..rom import sms_project
+
+            return sms_project.evaluate(self, fn, proj, obj)
         if self.cfg(proj).get("platform") == "gba":
             from ..rom import match_arm
 
@@ -372,6 +405,11 @@ class RomNetwork(Network):
             f"{info['region']}), {size}, looks built with {info['compiler_guess']}")
         if picked.platform == "gba":
             return self._import_gba(picked, slug, workdir, toolchain, flags, log)
+        if picked.platform == "sms":
+            from ..rom import sms_project
+
+            return sms_project.import_sms(self, picked, slug, workdir, toolchain, flags, log, _sym_file(data, name),
+                                          BASE_HEADER)
         if picked.overlays:
             log(f"{len(picked.overlays)} overlay{'s' if len(picked.overlays) != 1 else ''} on the disc: "
                 + ", ".join(f"{o[0]} at 0x{o[2]:08X}" for o in picked.overlays[:6]) + (", ..." if len(picked.overlays) > 6 else ""))
@@ -528,6 +566,10 @@ class RomNetwork(Network):
 
     def _seed_for(self, fn, proj) -> str | None:
         """m2c draft, made the first time someone opens the function (imports stay fast)."""
+        if fn["seed"] is None and self.cfg(proj).get("platform") == "sms":  # the listing and Ghidra's C
+            from ..rom import sms_project
+
+            return sms_project.seed(self, fn, proj)
         if fn["seed"] is not None or not seeds.available():
             return fn["seed"]
         tc = self.cfg(proj)["compiler"]["toolchain"]
@@ -581,6 +623,7 @@ class RomNetwork(Network):
             return self._xrefs[proj["id"]]
         funcs = self.store.all("SELECT name, vram, size, relocs FROM functions WHERE project_id=?", proj["id"])
         starts = {f["vram"] for f in funcs}
+        code_refs = (match.R_MIPS_26, 10, 11) if proj["arch"] == "z80" else (match.R_MIPS_26, 10)  # z80 11: a jump
         calls, called_by, uses, used_by = {}, {}, {}, {}
         for f in funcs:
             for off, rtype, addr in json.loads(f["relocs"]):
@@ -589,7 +632,7 @@ class RomNetwork(Network):
                 if addr in starts:
                     calls.setdefault(f["vram"], set()).add(addr)
                     called_by.setdefault(addr, set()).add(f["vram"])
-                elif rtype not in (match.R_MIPS_26, 10):  # 10: a Thumb call (GBA) to something not known as a function
+                elif rtype not in code_refs:  # 10: a Thumb call (GBA) to something not known as a function
                     uses.setdefault(f["vram"], set()).add(addr)
                     used_by.setdefault(addr, set()).add(f["vram"])
         self._xrefs[proj["id"]] = {"calls": calls, "called_by": called_by, "uses": uses, "used_by": used_by}
@@ -610,7 +653,8 @@ class RomNetwork(Network):
             lines.append("called by: " + ", ".join(syms.label(a) for a in callers[:30]))
         used = sorted(x["uses"].get(fn["vram"], ()))
         if used:
-            lines += ["", "### Data it uses (declare what you need as extern in your source, or in context.h)"]
+            lines += ["", "### Data it uses (write these names in your assembly)" if self._lang(proj) == "asm" else
+                      "### Data it uses (declare what you need as extern in your source, or in context.h)"]
             prev = {r["name"]: r for r in self.store.all("SELECT name, kind, size, preview FROM symbols WHERE project_id=?", proj["id"])}
             for a in used[:40]:
                 name, off = syms.name_at(a)
@@ -629,8 +673,13 @@ class RomNetwork(Network):
             src = self.store.one("SELECT matched_source FROM functions WHERE project_id=? AND name=?", proj["id"], r["name"])
             if sim >= 0.8 and src and src["matched_source"] and len(src["matched_source"]) <= 3000:
                 # nearly the same code: its matching C is the best starting point there is (saves a tool call)
-                lines += [f"Matching C of {r['name']} ({sim * 100:.0f}% similar): start from this",
-                          "```c", src["matched_source"].strip(), "```"]
+                lang = self._lang(proj)
+                lines += [f"Matching {'assembly' if lang == 'asm' else 'C'} of {r['name']} ({sim * 100:.0f}% similar): "
+                          "start from this", f"```{lang}", src["matched_source"].strip(), "```"]
+        if self.cfg(proj).get("platform") == "sms":
+            from ..rom import sms_project
+
+            lines += sms_project.brief_lines(self, fn, proj)
         lines += ["", "Names: use the names shown here (or rename_symbol to give an address a real name). "
                       "Your code is linked at this function's address and must reproduce the ROM bytes exactly."]
         return lines
@@ -645,6 +694,7 @@ class RomNetwork(Network):
             live.add(key)
             if key not in cache:
                 cache[key] = (similarity.thumb_mnemonics(r["target"], r["vram"] or 0) if proj["arch"] == "arm" else
+                              similarity.z80_mnemonics(r["target"], r["vram"] or 0) if proj["arch"] == "z80" else
                               similarity.mips_mnemonics(r["target"], bool(proj["big_endian"]), r["vram"] or 0))
         for key in set(cache) - live:
             del cache[key]
@@ -762,6 +812,10 @@ class RomNetwork(Network):
             raise NetworkError(f"`{new_name}` is not a free C identifier")
         if self.cfg(proj).get("platform") == "gba":
             return self._split_gba(agent, proj, fn, addr, new_name, syms)
+        if self.cfg(proj).get("platform") == "sms":
+            from ..rom import sms_project
+
+            return sms_project.split(self, agent, proj, fn, addr, new_name, syms)
         rf = self._parse_asm(fn["name"], fn["asm"], fn["unit"])
         try:
             head, tail = split.split_function(rf, addr, new_name)
@@ -1257,7 +1311,9 @@ class RomNetwork(Network):
         from ..rom.export_gba import export_gba
 
         proj = self._project(slug)
-        export = export_gba if self.cfg(proj).get("platform") == "gba" else export_rom
+        from ..rom.export_sms import export_sms
+
+        export = {"gba": export_gba, "sms": export_sms}.get(self.cfg(proj).get("platform"), export_rom)
         res = export(self, slug, Path(proj["root"]) / "source", log=log)
         with self.store.tx() as db:  # shown on the project page: what's in the tree and whether it rebuilds
             cfg = json.loads(db.execute("SELECT config FROM projects WHERE id=?", (proj["id"],)).fetchone()["config"])
@@ -1309,7 +1365,7 @@ class RomNetwork(Network):
             "context_version": self._context(proj["id"])["version"],
             "folder": proj["root"],
             "export": cfg.get("export"),
-            "exportable": cfg.get("platform", "n64") in ("n64", "psx", "ps2", "gba"),
+            "exportable": cfg.get("platform", "n64") in ("n64", "psx", "ps2", "gba", "sms"),
             "room": self._room_info(proj["slug"]),
         }
 

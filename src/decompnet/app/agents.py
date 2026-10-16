@@ -757,7 +757,7 @@ class Manager:
             # CodeWarrior's register and stack rules decide most of what's left on GameCube, Wii and DS
             topics = ["fork", "objdiff", *(["mwcc"] if ov.get("platform") in ("gc", "wii", "nds") else [])]
         else:
-            topics = ["workflow", {"psx": "psx", "ps2": "ps2", "gba": "agbcc"}.get(ov.get("platform")) or (
+            topics = ["workflow", {"psx": "psx", "ps2": "ps2", "gba": "agbcc", "sms": "z80"}.get(ov.get("platform")) or (
                 "ido" if ov["compiler"]["toolchain"].startswith("ido") else "gcc-kmc")]
         text += "\nKnow-how you'd otherwise read with guide() (more topics: guide()):\n\n" + "\n\n".join(
             tools._guide(t) for t in topics)
@@ -775,7 +775,9 @@ class Manager:
             return tools.FORK_PROMPT.format(title=ov["title"], platform=ov.get("platform_name") or "its platform",
                                             count=s.options.get("per_session", PER_SESSION),
                                             guides=", ".join(f'guide("{g}")' for g in guides))
-        guide = {"psx": "psx", "ps2": "ps2", "gba": "agbcc"}.get(ov.get("platform")) or (
+        if ov.get("platform") == "sms" and ov["compiler"]["toolchain"] == "z80asm":
+            return tools.ASM_WORK_PROMPT.format(title=ov["title"], count=s.options.get("per_session", PER_SESSION))
+        guide = {"psx": "psx", "ps2": "ps2", "gba": "agbcc", "sms": "z80"}.get(ov.get("platform")) or (
             "ido" if ov["compiler"]["toolchain"].startswith("ido") else "gcc-kmc")
         return tools.WORK_PROMPT.format(title=ov["title"], count=s.options.get("per_session", PER_SESSION), compiler_guide=guide)
 

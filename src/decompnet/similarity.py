@@ -34,6 +34,23 @@ def thumb_mnemonics(code: bytes, vram: int = 0) -> list[str]:
     return [ins.mnemonic for ins in md.disasm(code, vram)]
 
 
+def z80_mnemonics(code: bytes, vram: int = 0) -> list[str]:
+    """Master System: mnemonics with their register operands (`ld a`, `ld hl`), which say more on a Z80 than the
+    bare mnemonic (half the code is `ld`)."""
+    from . import z80
+
+    out = []
+    for ins in z80.disassemble(code, vram & 0xFFFF):
+        if ins.op is None:
+            out.append(".db")
+            continue
+        mnem, _, ops = ins.op.text.partition(" ")
+        first = ops.split(",")[0] if ops else ""
+        numeric = first in ("n", "nn", "rel", "(n)", "(nn)") or "+d)" in first
+        out.append(f"{mnem} {first}" if first and not numeric else mnem)
+    return out
+
+
 def mnemonics(lines: list[str]) -> list[str]:
     """Mnemonics from formatted instructions ("lwz r3, 0x10(r31)" -> "lwz")."""
     return [l.split(None, 1)[0].lower() for l in lines if l.strip()]

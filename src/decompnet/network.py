@@ -203,6 +203,10 @@ class Network:
     def _asm_text(self, fn, proj) -> str:
         return fn["asm"]
 
+    def _lang(self, proj) -> str:
+        """What agents write for this project: "c", or "asm" (Master System games, see rom.sms_project)."""
+        return "c"
+
     def _extra_brief(self, fn, proj) -> list[str]:
         return []
 
@@ -322,9 +326,10 @@ class Network:
             who = "you" if agent and claim["agent_id"] == agent.id else self._agent_name(claim["agent_id"])
             lines.append(f"claimed by {who}, lease expires in {int(claim['expires_at'] - time.time()) // 60} min "
                          f"(each compile_and_diff renews it)")
+        lang = self._lang(proj)
         if fn["status"] == "matched":
             lines += [f"MATCHED by {self._agent_name(fn['matched_agent_id'])} {_ago(fn['matched_at'])}:",
-                      "```c", fn["matched_source"].strip(), "```"]
+                      f"```{lang}", fn["matched_source"].strip(), "```"]
         if self._hash_only(fn):
             lines += ["", "### Target assembly", "This is a hash-only project: the coordinator keeps a one-way fingerprint of "
                       "each function, never its code. Disassemble your own lawful copy with "
@@ -336,8 +341,8 @@ class Network:
             if fn["best_source"]:
                 lines += ["", f"### Best attempt so far: score {fn['best_score']} by "
                               f"{self._agent_name(fn['best_agent_id'])} ({fn['attempts']} attempts total) — "
-                              f"start from this", "```c", fn["best_source"].strip(), "```"]
-            elif fn["seed"]:
+                              f"start from this", f"```{lang}", fn["best_source"].strip(), "```"]
+            elif fn["seed"] and lang == "c":
                 lines += ["", "### Machine-generated starting point (m2c: expect wrong types and names; "
                               "the context header helps)", "```c",
                           fn["seed"].strip(), "```"]
@@ -354,7 +359,13 @@ class Network:
             lines += ["", "### Project-wide notes (latest)"] + [f"- ({n['name']}) {n['text']}" for n in pnotes]
         if fn["unit"] and fn["unit"] in self._unit_contexts(proj["id"]):
             lines.insert(2, f"source unit {fn['unit']}: call get_context with function=\"{fn['name']}\" for its header")
-        if header == "CLAIMED":
+        if header == "CLAIMED" and lang == "asm":
+            lines += ["", "Next: the target assembly above assembles as it is. Make it the game's source: give "
+                          "the function, its callees and the RAM it uses real names (rename_symbol), name its "
+                          "labels, comment what it does, and compile_and_diff the whole function until score is 0. "
+                          "Addresses that have names must be written as names; bytes the game runs must be "
+                          "instructions, not .db. Shared constants go in the context (get_context, edit_context)."]
+        elif header == "CLAIMED":
             lines += ["", "Next: read context.h with get_context, write C for this function, and iterate with "
                           "compile_and_diff until score is 0. Submit only the function body (plus any helper "
                           "declarations); context.h is included automatically."]
@@ -399,6 +410,8 @@ class Network:
         cand, verdict, problems = self._evaluate(fn, proj, result.obj)
         if cand is None:
             self._record(fn, agent, None, source, ctx["version"])
+            if problems:  # the judge says why (a Master System function that doesn't assemble, say)
+                return {"text": "❌ " + "\n".join(problems), "score": None, "matched": False}
             return {"text": f"❌ Compiled, but the object has no function named `{fn['name']}`. "
                             f"Define it with exactly that name (non-static).", "score": None, "matched": False}
         if self._hash_only(fn):

@@ -507,3 +507,32 @@ description = "Game Boy Advance disassembler: finds the functions in a ROM and w
 git = "https://github.com/aarant/luvdis"
 commit = "ec3a4e3ee3afe3e9b4a9c7ae8fffc65e1ea2096c"
 pip_extra = ["setuptools<70"]
+
+[z80asm]
+name = "decomp.wtf Z80 assembler"
+platform = "SMS"
+arch = "z80"
+license = "MIT"
+source = "decompnet.z80 (built in)"
+description = "Hand-written Z80 assembly, the way Master System games were made: assembled at the function's address and compared byte for byte. Built in, nothing to install."
+builtin = true
+
+[sdcc]
+name = "SDCC"
+platform = "SMS"
+arch = "z80"
+license = "GPL-2.0"
+source = "SDCC 4.4.0 (sdcc.sourceforge.net); on Windows, the SDCC already installed"
+description = "The C compiler of Master System homebrew (devkitSMS). Its Z80 assembly goes through the same judge as hand-written code."
+system = "sdcc"
+system_paths = ['%ProgramFiles%\SDCC\bin\sdcc.exe', 'C:\msys64\mingw64\bin\sdcc.exe', 'C:\msys64\ucrt64\bin\sdcc.exe', 'C:\msys64\clang64\bin\sdcc.exe']
+[[sdcc.parts]]
+url = "https://downloads.sourceforge.net/project/sdcc/sdcc-linux-amd64/4.4.0/sdcc-4.4.0-amd64-unknown-linux2.5.tar.bz2"
+sha256 = "7cb4c96bd774f95e8032746e6808b59f3a8e2b3e7b4c72ac566bb67beeacff80"
+subdir = "sdcc-4.4.0"
+platforms = ["linux-x86_64"]
+[[sdcc.parts]]
+url = "https://downloads.sourceforge.net/project/sdcc/sdcc-macos-amd64/4.4.0/sdcc-4.4.0-x86_64-apple-macosx.tar.bz2"
+sha256 = "153f0d76c588bae34ecb20da3d7096c6357b7abe55a54020e6165ce0224d88f5"
+subdir = "sdcc-4.4.0"
+platforms = ["macos-x86_64"]

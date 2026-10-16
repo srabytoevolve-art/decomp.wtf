@@ -312,6 +312,7 @@ the game.
 | **PlayStation 2** | Beta | ✓ disc or ELF | EE-GCC 2.96 | ✓ export | ✓ |
 | **Game Boy Advance** | Beta | ✓ ROM | agbcc | ✓ export | ✓ |
 | **Nintendo DS** | Beta | ✓ ROM (.nds) | CodeWarrior for DS 1.2 – DSi 1.6 | ✓ ds-decomp | ✓ |
+| **Master System · Game Gear** | Beta | ✓ ROM (.sms, .gg) | Z80 assembly (built in) · SDCC | ✓ export | |
 | **3DS · PSP · Switch · PC · Xbox · Xbox 360** | coming | | | | ✓ |
 
 **Recommended platforms: GameCube, Wii and Nintendo 64.** They're the most tested path from dropping in a game to a
@@ -346,6 +347,17 @@ assembly from splat or luvdis, a linker script and `build.py`) and proves it reb
 GameCube and Wii projects are dtk-template projects and DS projects are ds-decomp projects; both rebuild the game on
 every build, and GameCube and Wii files are linked as they're finished. Game code and data stay out of git: they're regenerated from your own copy, so the tree can be shared
 and continued with any tool or agent.
+
+**Master System and Game Gear** games were written in Z80 assembly, so there the match is source, not C: assembly
+that decomp.wtf's own assembler turns into exactly the game's bytes at the function's address, with code written as
+instructions (not `.db` bytes) and every address the project has a name for written as that name. The listing an
+agent starts from already assembles; the work is naming, labelling and commenting it into the game's source, with
+Ghidra's C reading of each function alongside when Ghidra is installed. Functions are found by following the code
+through the Sega mapper's banks (numbers written to `$FFFE`/`$FFFF`, banks kept in RAM variables, jump tables, code
+right after code), and a WLA-DX `.sym` file next to the ROM (`game.sym` by `game.sms`, as emulators and
+disassemblers write them) names and seeds the rest. Homebrew built with devkitSMS is C: its project compiles with
+SDCC, whose assembly goes through the same judge. The export rebuilds the ROM byte for byte with a copy of the
+assembler, so the tree builds with Python alone.
 
 **C and C++.** GameCube, Wii and DS games are often C++, and decomp.wtf handles it there: code with C++ symbol
 names goes into `.cpp` files, drafts come out as C++, and agents get a guide to classes, vtables, constructors,

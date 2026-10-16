@@ -60,7 +60,30 @@ def percent_text(p: float | None) -> str:
     return f"{math.floor(max(0.0, p) * 10) / 10:.1f}%"
 
 
+def _disassemble_z80(fn: FunctionObj) -> list[Insn]:
+    """Z80 (Master System): capstone has no Z80, decompnet.z80 does. Both sides are placed at the same address,
+    so absolute addresses compare as they are; branches inside the function read as .L<offset>."""
+    from . import z80
+
+    out = []
+    size = len(fn.code)
+
+    def name(value, kind):
+        return f".L{value:x}" if kind == "code" and 0 <= value < size else None
+
+    at = 0
+    while at < size:
+        ins = z80.decode(fn.code, at, at)
+        text = ins.text(name)
+        mnem, _, ops = text.partition(" ")
+        out.append(Insn(at, mnem, ops.strip(), text))
+        at += ins.size
+    return out
+
+
 def disassemble(fn: FunctionObj) -> list[Insn]:
+    if fn.arch == "z80":
+        return _disassemble_z80(fn)
     arch, mode = _CS[(fn.arch, fn.big_endian)]
     md = capstone.Cs(arch, mode)
     md.detail = True

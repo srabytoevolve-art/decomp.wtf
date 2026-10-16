@@ -56,6 +56,9 @@ class Toolchain:
     binary_name: str = ""  # main executable of a tool, without .exe
     pip_extra: list[str] = field(default_factory=list)  # extra requirements for a git tool's environment
     requires_java: int = 0  # minimum Java version (Ghidra)
+    builtin: bool = False  # part of decomp.wtf itself (the Z80 assembler): always installed
+    system: str = ""  # an executable this computer may already have (found on PATH or in system_paths)
+    system_paths: list[str] = field(default_factory=list)
 
     @property
     def proprietary(self) -> bool:
@@ -76,7 +79,8 @@ class Toolchain:
     @property
     def supported(self) -> bool:
         """Whether this toolchain can be installed on this computer (on Windows, Linux ones through WSL 2)."""
-        return bool(self.git) or bool(self.parts_for()) or self.via_wsl
+        return (self.builtin or bool(self.git) or bool(self.parts_for()) or self.via_wsl
+                or system_exe(self.id) is not None)
 
 
 def current_platform() -> str:
@@ -137,7 +141,30 @@ def path(tid: str, linux: bool | None = None) -> Path:
 
 def installed(tid: str, linux: bool | None = None) -> dict | None:
     m = path(tid, linux) / MANIFEST
-    return json.loads(m.read_text(encoding="utf-8")) if m.exists() else None
+    if m.exists():
+        return json.loads(m.read_text(encoding="utf-8"))
+    spec = _registry_data().get(tid, {})
+    if spec.get("builtin"):
+        return {"id": tid, "builtin": True}
+    if spec.get("system") and not linux and (exe := system_exe(tid)) is not None:
+        return {"id": tid, "system": str(exe)}
+    return None
+
+
+def system_exe(tid: str) -> Path | None:
+    """A toolchain's program as this computer already has it (on PATH, or where its installer puts it)."""
+    spec = _registry_data().get(tid, {})
+    name = spec.get("system")
+    if not name:
+        return None
+    found = shutil.which(name)
+    if found:
+        return Path(found)
+    for p in spec.get("system_paths", []):
+        candidate = Path(os.path.expandvars(p))
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def require(tid: str, linux: bool | None = None) -> Path:
