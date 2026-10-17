@@ -151,6 +151,31 @@ def test_an_agent_out_of_credit_stops_and_says_so(tmp_path, monkeypatch):
     assert manager._run_cli(s, "token", tmp_path) is False and s.throttled
 
 
+def test_an_agent_at_its_usage_limit_waits_for_the_reset(tmp_path, monkeypatch):
+    """Claude Code's plan limit isn't a failure: the session waits until the time it says, then carries on."""
+    import datetime as dt
+
+    now = dt.datetime(2026, 10, 17, 3, 0).astimezone().timestamp()
+    at = lambda text: agents.limit_reset(text, now)
+    local = lambda h, m=0, d=17: dt.datetime(2026, 10, d, h, m).astimezone().timestamp() + agents.LIMIT_MARGIN
+    assert at("You've hit your session limit · resets 6:30am") == local(6, 30)
+    assert at("You've hit your session limit · resets 2am") == local(2, d=18)  # already past today: tomorrow
+    assert at("5-hour limit reached ∙ resets 3pm") == local(15)
+    assert at("You've hit your weekly limit · resets Oct 20, 9am") == local(9, d=20)
+    assert at(f"Claude AI usage limit reached|{int(now) + 600}") == now + 600 + agents.LIMIT_MARGIN
+    assert at("You've hit your usage limit. Try again later.") == now + agents.LIMIT_RETRY
+    assert at("API Error: Rate limit reached for requests") is None and at("exited with code 1") is None
+    ny = at("You've hit your session limit · resets 6:30am (America/New_York)")
+    assert ny is not None and now < ny <= now + 86400 + agents.LIMIT_MARGIN
+
+    manager = agents.Manager(None, tmp_path, "http://127.0.0.1:9/mcp")
+    code = "print(\"You've hit your session limit \\u00b7 resets 6:30am\"); raise SystemExit(1)"
+    monkeypatch.setattr(manager, "_command", lambda s, token, workdir: ([sys.executable, "-c", code], dict(os.environ), ""))
+    s = agents.Session("claude-1", "claude", "Claude Code #1", "game", "claude-1", {})
+    assert manager._run_cli(s, "token", tmp_path) is False
+    assert s.limited_until > time.time() and not s.error and not s.signed_out
+
+
 @needs_demo
 def test_builtin_api_agent_out_of_credit(app, monkeypatch):
     client, net, manager = app

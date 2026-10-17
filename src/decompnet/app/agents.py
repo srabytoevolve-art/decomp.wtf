@@ -157,6 +157,55 @@ _NO_CREDIT = re.compile(r"insufficient[ _](?:balance|credits?|funds|quota)|excee
                         r"credit balance is too low|payment required|out of credits?", re.I)
 # and when it's asked too much at once (HTTP 429): it works again in a while
 _THROTTLED = re.compile(r"too many requests|rate[ _-]?limit|concurrency limit|\b429\b|overloaded", re.I)
+# and when the account has used its plan's allowance for now (Claude Code: "You've hit your session limit · resets
+# 6:30am (America/New_York)", "Claude AI usage limit reached|1760000000"; Codex: "You've hit your usage limit"):
+# every agent on it waits for the reset, then carries on
+_LIMITED = re.compile(r"(?:session|usage|weekly|daily|hourly|5-hour|opus|sonnet) limit\b", re.I)
+_RESET_EPOCH = re.compile(r"limit reached\|(\d{10})\b")
+_RESET_AT = re.compile(r"resets?\s+(?:at\s+|on\s+)?(?:(?P<mon>[A-Z][a-z]{2})[a-z]*\.?\s+(?P<day>\d{1,2}),?\s+(?:at\s+)?)?"
+                       r"(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>[ap]\.?m\.?)?(?:\s*\((?P<tz>[A-Za-z_]+/[A-Za-z_/]+)\))?",
+                       re.I)
+LIMIT_RETRY = 30 * 60  # when the message doesn't say when the limit resets: look again this much later
+LIMIT_MARGIN = 120  # after the stated reset, so the first run doesn't race it
+
+
+def limit_reset(said: str, now: float | None = None) -> float | None:
+    """When the agent's account limit (`said`) lifts, as a time.time(); None when `said` isn't about one. The
+    stated clock time is read in the stated time zone (else this computer's), the next time it comes round."""
+    if not _LIMITED.search(said):
+        return None
+    import datetime as dt
+
+    now = time.time() if now is None else now
+    if (m := _RESET_EPOCH.search(said)) and int(m.group(1)) > now - 86400:
+        return max(now, float(m.group(1))) + LIMIT_MARGIN
+    if not (m := _RESET_AT.search(said)):
+        return now + LIMIT_RETRY
+    tz = None
+    if m["tz"]:
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(m["tz"])
+        except Exception:  # no time zone database (Windows without tzdata): this computer's zone is the best guess
+            tz = None
+    here = dt.datetime.fromtimestamp(now, tz) if tz else dt.datetime.fromtimestamp(now).astimezone()
+    hour, minute = int(m["h"]), int(m["m"] or 0)
+    if m["ap"]:
+        hour = hour % 12 + (12 if m["ap"].lower().startswith("p") else 0)
+    if hour > 23 or minute > 59:
+        return now + LIMIT_RETRY
+    at = here.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if m["mon"]:
+        try:
+            month = dt.datetime.strptime(m["mon"][:3].title(), "%b").month
+            at = at.replace(month=month, day=int(m["day"]))
+        except ValueError:
+            return now + LIMIT_RETRY
+        if at < here - dt.timedelta(days=1):  # December's message read in January
+            at = at.replace(year=at.year + 1)
+    elif at <= here:
+        at += dt.timedelta(days=1)
+    return max(now, at.timestamp()) + LIMIT_MARGIN
 
 
 def no_credit(said: str) -> str | None:
@@ -517,6 +566,7 @@ class Session:
     tokens: int = 0
     signed_out: bool = False  # the agent CLI isn't signed in: trying again won't help
     throttled: bool = False  # the last run ended on the provider's limit of requests at once: not a failure
+    limited_until: float = 0.0  # the last run ended on the account's usage limit, which lifts then: not a failure
 
     def push(self, kind: str, text: str) -> None:
         self.seq += 1
@@ -718,6 +768,15 @@ class Manager:
             if s.signed_out:
                 s.state = "error"
                 break
+            if s.limited_until:  # the account's usage limit: every run fails until it lifts, so wait for that
+                until, s.limited_until = s.limited_until, 0.0
+                s.state, s.error = "waiting", ""
+                s.push("info", f"{KINDS[s.kind].name} hit the account's usage limit: waiting until "
+                               f"{time.strftime('%a %H:%M', time.localtime(until))}, then carrying on")
+                while not s.stop.is_set() and time.time() < until:
+                    s.stop.wait(min(60, max(1, until - time.time())))  # short steps: a sleeping computer wakes late
+                failures = throttles = 0
+                continue
             if s.throttled and throttles < 10:  # the provider's limit, not the agent's failure: wait it out
                 s.throttled, throttles = False, throttles + 1
                 s.state = "waiting"
@@ -904,6 +963,9 @@ class Manager:
             raise Fatal(refused)  # every retry would be refused the same way
         if code != 0 and not s.stop.is_set() and (why := no_credit(" ".join([*said, *errors]))):
             raise Fatal(why)  # every agent on this account fails the same way until it's topped up
+        if code != 0 and not s.stop.is_set() and (until := limit_reset(" ".join([*said, *errors]))):
+            s.limited_until = until
+            return False
         if code != 0 and not s.stop.is_set() and _THROTTLED.search(" ".join([*said, *errors])):
             s.throttled = True
         if code != 0 and not s.stop.is_set() and _SIGNED_OUT.search(" ".join([*said, *errors])):
