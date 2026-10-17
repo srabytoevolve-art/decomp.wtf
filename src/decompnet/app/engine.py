@@ -951,6 +951,10 @@ class RomNetwork(Network):
             return f"❌ REJECTED: renaming breaks {len(broken)} matched function(s).\n{listing}"
         msg = message.strip() or f"rename {old} -> {new}"
         with self.store.tx() as db:
+            # one name per address, as in SymbolTable: drop the address's other names (a table only keeps one of
+            # them, so they'd be unknown to agents yet block their name) and a stale row that already says `new`
+            db.execute("DELETE FROM symbols WHERE project_id=? AND (address=? OR name=?) AND name<>?",
+                       (proj["id"], addr, new, old))
             if db.execute("UPDATE symbols SET name=? WHERE project_id=? AND name=?", (new, proj["id"], old)).rowcount == 0:
                 s = trial.by_name[new]
                 db.execute("INSERT OR REPLACE INTO symbols(project_id,name,address,size,kind) VALUES(?,?,?,?,?)",

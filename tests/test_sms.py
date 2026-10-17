@@ -289,6 +289,21 @@ def test_renames_reach_matched_code(project, game):
     assert "(wState)" in src and "D_0000C000" not in src
 
 
+def test_rename_over_a_hidden_second_name(project):
+    """Two names at one address in the database: the table shows the last, the first only blocks its name."""
+    net, slug = project
+    agent, _ = net.local_agent("sms-agent")
+    pid = net._project(slug)["id"]
+    with net.store.tx() as db:
+        for name in ("ghost_a", "visible_b"):
+            db.execute("INSERT INTO symbols(project_id,name,address,size,kind) VALUES(?,?,?,?,?)",
+                       (pid, name, 0xC1F0, 1, "data"))
+    net._syms.pop(pid, None)
+    assert net.rename_symbol(agent, slug, "visible_b", "ghost_a").startswith("✅")
+    rows = net.store.all("SELECT name FROM symbols WHERE project_id=? AND address=?", pid, 0xC1F0)
+    assert [r["name"] for r in rows] == ["ghost_a"]
+
+
 def test_an_agent_adds_a_function_the_finder_missed(project, game):
     net, slug = project
     _, _, labels = game
