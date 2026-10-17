@@ -83,7 +83,7 @@ def export_sms(net, slug: str, out: Path, log=print) -> dict:
     if not identical:
         log((proc.stdout + proc.stderr)[-3000:])
     return {"path": str(out), "identical": identical, "matched": matched, "functions": len(functions),
-            "fallback": fallback, "log": (proc.stdout + proc.stderr)[-3000:]}
+            "fallback": fallback, "language": lang, "log": (proc.stdout + proc.stderr)[-3000:]}
 
 
 def _docs(out: Path, title: str, matched: int, total: int, fallback, lang: str) -> None:

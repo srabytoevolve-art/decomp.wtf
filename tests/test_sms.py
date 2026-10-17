@@ -289,6 +289,20 @@ def test_renames_reach_matched_code(project, game):
     assert "(wState)" in src and "D_0000C000" not in src
 
 
+def test_renaming_by_the_automatic_name_renames_the_source_too(project, game):
+    """An agent that read `func_...` in old notes renames the address after it got a real name: the function and its
+    matched source must stay in step (the export finds each function by its label)."""
+    net, slug = project
+    _, _, labels = game
+    agent, _ = net.local_agent("sms-agent")
+    vram = labels["StateTitle"]
+    assert net.rename_symbol(agent, slug, _name_at(net, slug, vram), "TitleState").startswith("✅")
+    assert net.rename_symbol(agent, slug, f"func_{vram:08X}", "TitleScreen").startswith("✅")
+    assert _name_at(net, slug, vram) == "TitleScreen"
+    src = net._function("TitleScreen", slug)["matched_source"]
+    assert "TitleScreen:" in src and "TitleState" not in src
+
+
 def test_rename_over_a_hidden_second_name(project):
     """Two names at one address in the database: the table shows the last, the first only blocks its name."""
     net, slug = project
@@ -335,6 +349,15 @@ def test_export_rebuilds_the_rom(project):
     assert (out / "tools" / "z80.py").exists() and (out / "src").is_dir()
     proc = subprocess.run([sys.executable, "build.py"], cwd=out, capture_output=True, text=True)
     assert "identical" in proc.stdout
+    assert res["language"] == "asm"
+    # matched sources may still use automatic names (nobody named that table yet): the build knows them too
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sms_build", out / "build.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    resolve = build.resolver({"wState": 0xC000})
+    assert resolve("wState") == 0xC000 and resolve("D_00015B13") == 0x5B13 and resolve("func_00028C40") == 0x8C40
+    assert resolve("nobody") is None
 
 
 C_FUNCTION = """

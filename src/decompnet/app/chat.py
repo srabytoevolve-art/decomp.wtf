@@ -248,4 +248,7 @@ def register(mcp, net, manager, jobs, settings, port: int, secret: str) -> None:
         if res.get("identical") is None:
             return f"This project is already a source tree: {res['path']} (every match is committed to git)."
         verdict = "rebuilds the game byte for byte" if res["identical"] else "does NOT rebuild identically yet"
-        return f"Exported to {res['path']}: {res.get('matched')} of {res.get('functions')} functions are C; it {verdict}."
+        what = "matching assembly" if res.get("language") == "asm" else "C"  # Master System games are assembly
+        why = "" if res["identical"] else next((f" (build.py: {l.strip()})" for l in reversed(res.get("log", "").splitlines())
+                                                if l.strip()), "")
+        return f"Exported to {res['path']}: {res.get('matched')} of {res.get('functions')} functions are {what}; it {verdict}{why}."

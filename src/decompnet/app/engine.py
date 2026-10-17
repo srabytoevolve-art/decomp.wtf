@@ -923,6 +923,10 @@ class RomNetwork(Network):
         taken = syms.resolve(new)
         if taken is not None and taken != addr:
             raise NetworkError(f"`{new}` already names 0x{taken:08X}")
+        if old not in syms.by_name:  # an automatic name (func_/D_) for an address that may have a real one by now
+            named = self.store.one("SELECT name FROM functions WHERE project_id=? AND vram=?", proj["id"], addr)
+            real = named["name"] if named else (syms.by_addr[addr].name if addr in syms.by_addr else old)
+            old = real  # rename what the sources say, or they'd keep the old name while the function gets the new
         word = re.compile(rf"\b{re.escape(old)}\b")
         trial = SymbolTable([Symbol(s.name, s.address, s.size, s.kind) for s in syms.by_name.values()])
         if old in trial.by_name:

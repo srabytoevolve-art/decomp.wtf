@@ -11,6 +11,7 @@ baserom.sms, which stays out of git. The result, build/game.sms, must be identic
 
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -23,11 +24,19 @@ def load():
     return json.loads((HERE / "build.json").read_text(encoding="utf-8"))
 
 
+# addresses nobody named yet go by their automatic name (D_0000C123, func_00158A3C: bank << 16 | address), as in
+# decomp.wtf's judge
+AUTO_NAME = re.compile(r"^(?:func|D|B|jtbl|L|RO|STR|FLT|DBL|bss|data|sub|gUnknown|unk|off|dword|word|byte|loc)_"
+                       r"([0-9A-Fa-f]{8})$")
+
+
 def resolver(symbols):
     def resolve(name):
         for n in (name, name[1:] if name.startswith("_") else None):
             if n and n in symbols:
                 return symbols[n] & 0xFFFF
+            if n and (m := AUTO_NAME.match(n)):
+                return int(m.group(1), 16) & 0xFFFF
         return None
     return resolve
 
